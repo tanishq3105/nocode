@@ -37,24 +37,37 @@ def execute_workflow():
     result = workflow_executor.execute_workflow(input_message)
     
     return jsonify(result)
+
+@bp.route('/clear-memory', methods=['POST'])
+def clear_memory():
+    """Clear the conversation history"""
+    result = workflow_executor.clear_conversation_history()
+    return jsonify(result)
 `
 
-// Replace the llmServiceTemplate with this Langchain-based version
+// Update the llmServiceTemplate with memory support
 const llmServiceTemplate = `
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_community.llms import HuggingFaceEndpoint
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema import HumanMessage
+from langchain.schema import HumanMessage, AIMessage
+from langchain.memory import ConversationBufferMemory
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 class LLMService:
-    def __init__(self, model='{model}', api_key='{api_key}', temperature={temperature}):
+    def __init__(self, model="{model}", api_key="{api_key}", temperature={temperature}, use_memory={use_memory}):
         self.model = model
         self.api_key = api_key
         self.temperature = float(temperature)
+        self.use_memory = use_memory
         self._llm = self._initialize_llm()
+        
+        # Initialize memory if enabled
+        if self.use_memory:
+            self.memory = ConversationBufferMemory()
+            self.chat_history = []
         
     def _initialize_llm(self):
         """Initialize the appropriate LLM based on the model name"""
@@ -98,8 +111,26 @@ class LLMService:
     def generate_response(self, prompt: str) -> Dict[str, Any]:
         """Generate a response from the LLM based on the prompt"""
         try:
-            messages = [HumanMessage(content=prompt)]
-            response = self._llm.invoke(messages)
+            if self.use_memory:
+                # Add the new user message to chat history
+                self.chat_history.append(HumanMessage(content=prompt))
+                
+                # Create messages list from chat history
+                messages = self.chat_history.copy()
+                
+                # Generate response
+                response = self._llm.invoke(messages)
+                
+                # Add the AI response to chat history
+                self.chat_history.append(AIMessage(content=response.content if hasattr(response, "content") else str(response)))
+                
+                # Keep chat history to a reasonable size (last 10 messages)
+                if len(self.chat_history) > 10:
+                    self.chat_history = self.chat_history[-10:]
+            else:
+                # No memory, just process the current message
+                messages = [HumanMessage(content=prompt)]
+                response = self._llm.invoke(messages)
             
             return {
                 "text": response.content if hasattr(response, "content") else str(response),
@@ -120,14 +151,20 @@ class LLMService:
         if temperature is not None:
             self.temperature = float(temperature)
         self._llm = self._initialize_llm()
+    
+    def clear_memory(self):
+        """Clear the conversation history"""
+        if self.use_memory:
+            self.chat_history = []
 
 # Create a default instance
 default_llm = LLMService()
 `
 
-// Replace the workflowExecutorTemplate with this updated version
+// Update the workflowExecutorTemplate to support memory
 const workflowExecutorTemplate = `
 from services.llm_service import default_llm
+from flask import session
 
 def execute_workflow(input_message):
     """
@@ -151,25 +188,34 @@ def execute_workflow(input_message):
             "success": True,
             "input": processed_input,
             "output": llm_response["text"],
-            "model": llm_response["model"]
+            "model": llm_response["model"],
+            "has_memory": default_llm.use_memory
         }
     except Exception as e:
         return {
             "success": False,
             "error": f"Workflow execution failed: {str(e)}"
         }
+
+def clear_conversation_history():
+    """
+    Clear the conversation history in the LLM service
+    """
+    default_llm.clear_memory()
+    return {"success": True, "message": "Conversation history cleared"}
 `
 
-// Update the requirementsTemplate to include Langchain
+// Update the requirementsTemplate to ensure memory dependencies
 const requirementsTemplate = `
-flask
-flask-cors
-requests
-python-dotenv
-langchain
-langchain-openai
-langchain-anthropic
-langchain-community
+flask==2.3.3
+flask-cors==4.0.0
+requests==2.31.0
+python-dotenv==1.0.0
+langchain==0.1.12
+langchain-openai==0.1.5
+langchain-anthropic==0.1.1
+langchain-community==0.2.0
+langchain-google-genai==0.0.6
 `
 
 // Template for .env file
@@ -229,6 +275,7 @@ export function generateBackendCode(workflow: Workflow): GeneratedFile[] {
   const model = llmNode?.data.model || "gemini-2.0-flash"
   const apiKey = llmNode?.data.apiKey || "${GEMINI_API_KEY}"
   const temperature = llmNode?.data.temperature || "0.7"
+  const useMemory = llmNode?.data.memory || false
 
   // Generate app.py
   files.push({
@@ -253,6 +300,7 @@ export function generateBackendCode(workflow: Workflow): GeneratedFile[] {
     .replace("{model}", model)
     .replace("{api_key}", apiKey)
     .replace("{temperature}", temperature)
+    .replace("{use_memory}", useMemory.toString().toLowerCase())
 
   files.push({
     path: "services/llm_service.py",
@@ -284,17 +332,51 @@ export function generateBackendCode(workflow: Workflow): GeneratedFile[] {
   })
 
   // Generate .env file
-  const envFile = envFileTemplate.replace("{openai_api_key}", apiKey).replace("{anthropic_api_key}", apiKey).replace("{gemini_api_key}",apiKey)
+  const envFile = envFileTemplate
+    .replace("{openai_api_key}", apiKey)
+    .replace("{anthropic_api_key}", apiKey)
+    .replace("{gemini_api_key}", apiKey)
 
   files.push({
     path: ".env",
     content: envFile.trim(),
   })
 
-  // Generate README.md
+  // Generate README.md with memory information
+  const readmeContent =
+    readmeTemplate.trim() +
+    `
+
+## Memory Context
+
+This backend ${useMemory ? "includes" : "can include"} conversation memory, allowing the LLM to remember previous interactions in a conversation.
+
+${useMemory ? "Memory is currently **enabled**." : "Memory is currently **disabled**. To enable it, update the `use_memory` parameter in the LLMService class."}
+
+### Memory API Endpoints
+
+- POST /api/clear-memory
+  - Clears the conversation history
+  - No request body needed
+  - Response: \`{ "success": true, "message": "Conversation history cleared" }\`
+
+### How Memory Works
+
+When memory is enabled:
+1. The LLM keeps track of the conversation history
+2. Each new message is added to the history
+3. The full conversation context is sent with each request
+4. The LLM can reference previous messages in its responses
+
+This is useful for:
+- Maintaining context in multi-turn conversations
+- Building chatbots that can remember user information
+- Creating assistants that can refer back to previous questions
+`
+
   files.push({
     path: "README.md",
-    content: readmeTemplate.trim(),
+    content: readmeContent,
   })
 
   // Generate workflow.json to store the workflow configuration

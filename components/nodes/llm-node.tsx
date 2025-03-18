@@ -6,9 +6,10 @@ import { useCallback } from "react"
 import { Handle, Position, type NodeProps } from "reactflow"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import type { NodeData } from "@/types/workflow"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Cpu } from "lucide-react"
+import { Cpu, MemoryStickIcon as Memory } from "lucide-react"
 import ModelSelector from "@/components/model-selector"
 
 export default function LLMNode({ id, data, isConnectable }: NodeProps<NodeData>) {
@@ -29,6 +30,13 @@ export default function LLMNode({ id, data, isConnectable }: NodeProps<NodeData>
   const onTemperatureChange = useCallback(
     (evt: React.ChangeEvent<HTMLInputElement>) => {
       data.onChange?.(id, { temperature: evt.target.value })
+    },
+    [id, data],
+  )
+
+  const onMemoryChange = useCallback(
+    (checked: boolean) => {
+      data.onChange?.(id, { memory: checked })
     },
     [id, data],
   )
@@ -79,6 +87,19 @@ export default function LLMNode({ id, data, isConnectable }: NodeProps<NodeData>
             placeholder="0.7"
             className="h-8 text-xs"
           />
+        </div>
+
+        <div className="flex items-center justify-between space-y-0 pt-1">
+          <div className="flex items-center space-x-2">
+            <Memory className="h-4 w-4 text-muted-foreground" />
+            <Label htmlFor={`memory-${id}`} className="text-xs">
+              Memory Context
+            </Label>
+          </div>
+          <Switch id={`memory-${id}`} checked={data.memory || false} onCheckedChange={onMemoryChange} />
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {data.memory ? "LLM will remember conversation history" : "LLM will treat each message independently"}
         </div>
 
         <Handle

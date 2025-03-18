@@ -5,6 +5,7 @@ export interface NodeData {
   apiKey?: string
   temperature?: string
   output?: string
+  memory?: boolean
   onChange?: (nodeId: string, data: Partial<NodeData>) => void
 }
 

@@ -5,25 +5,34 @@ import WorkflowEditor from "@/components/workflow-editor"
 import { Button } from "@/components/ui/button"
 import type { Workflow } from "@/types/workflow"
 import { generateBackend } from "@/lib/api"
-import { Loader2, Download, Play } from "lucide-react"
+import { Loader2, Download, Play, Trash2 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function Home() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [executionResult, setExecutionResult] = useState<string | null>(null)
   const [testInput, setTestInput] = useState<string>("")
   const [testOutput, setTestOutput] = useState<string | null>(null)
+  const [sessionId] = useState<string>(`session-${Date.now()}`)
+  const [hasMemory, setHasMemory] = useState<boolean>(false)
 
   const handleExportWorkflow = async (workflowData: Workflow) => {
     setWorkflow(workflowData)
     setIsGenerating(true)
     setDownloadUrl(null)
     setExecutionResult(null)
+
+    // Check if any LLM node has memory enabled
+    const llmNodes = workflowData.nodes.filter((node) => node.type === "llm")
+    const memoryEnabled = llmNodes.some((node) => node.data.memory)
+    setHasMemory(memoryEnabled)
 
     try {
       const result = await generateBackend(workflowData)
@@ -55,6 +64,7 @@ export default function Home() {
         body: JSON.stringify({
           workflow,
           input: testInput,
+          sessionId,
         }),
       })
 
@@ -62,6 +72,7 @@ export default function Home() {
 
       if (data.success && data.result) {
         setTestOutput(data.result.output)
+        setHasMemory(data.result.hasMemory || false)
       } else {
         setTestOutput(`Error: ${data.error || "Failed to execute workflow"}`)
       }
@@ -70,6 +81,37 @@ export default function Home() {
       setTestOutput("Error: Failed to execute workflow")
     } finally {
       setIsExecuting(false)
+    }
+  }
+
+  const handleClearMemory = async () => {
+    if (!workflow) return
+
+    setIsClearing(true)
+
+    try {
+      const response = await fetch("/api/execute-workflow", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setTestOutput("Conversation history has been cleared. You can start a new conversation.")
+      } else {
+        setTestOutput(`Error: ${data.error || "Failed to clear conversation history"}`)
+      }
+    } catch (error) {
+      console.error("Error clearing conversation history:", error)
+      setTestOutput("Error: Failed to clear conversation history")
+    } finally {
+      setIsClearing(false)
     }
   }
 
@@ -118,6 +160,13 @@ export default function Home() {
                 <CardTitle>Test Your Workflow</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {hasMemory && (
+                  <Alert className="bg-blue-50">
+                    <AlertDescription className="text-xs">
+                      Memory is enabled. The LLM will remember your conversation history.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="test-input">Input Message</Label>
                   <Textarea
@@ -145,6 +194,26 @@ export default function Home() {
                     </>
                   )}
                 </Button>
+                {hasMemory && (
+                  <Button
+                    onClick={handleClearMemory}
+                    disabled={isClearing || !workflow}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    {isClearing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Clearing...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Clear Conversation History
+                      </>
+                    )}
+                  </Button>
+                )}
                 {testOutput && (
                   <div className="mt-4">
                     <Label>Output</Label>

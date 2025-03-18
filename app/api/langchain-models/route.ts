@@ -22,13 +22,13 @@ export async function GET(request: NextRequest) {
       apiKeyEnv: "ANTHROPIC_API_KEY",
     },
     {
-      provider: "Google Gen AI",
+      provider: "Google",
       models: [
-        { id: "gemini-2.0-flash", name: "Gemini 2.0" },
+        { id: "gemini-2.0-flash", name: "Gemini" },
+        
       ],
       apiKeyEnv: "ANTHROPIC_API_KEY",
     },
-  
     {
       provider: "Hugging Face",
       models: [
