@@ -5,17 +5,24 @@ import WorkflowEditor from "@/components/workflow-editor"
 import { Button } from "@/components/ui/button"
 import type { Workflow } from "@/types/workflow"
 import { generateBackend } from "@/lib/api"
-import { Loader2, Download, Play, Trash2 } from "lucide-react"
+import { Loader2, Download, Play, Trash2, Cloud } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export default function Home() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
+  const [isDeploying, setIsDeploying] = useState(false)
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [executionResult, setExecutionResult] = useState<string | null>(null)
   const [testInput, setTestInput] = useState<string>("")
@@ -115,6 +122,40 @@ export default function Home() {
     }
   }
 
+  const handleDeploy = async (platform: "aws" | "gcp") => {
+    if (!workflow) return
+
+    setIsDeploying(true)
+    setTestOutput(`Deploying to ${platform === "aws" ? "AWS" : "Google Cloud"}...`)
+
+    try {
+      const response = await fetch("/api/deploy-workflow", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workflow,
+          platform,
+          sessionId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setTestOutput(`Successfully deployed to ${platform === "aws" ? "AWS" : "Google Cloud"}!\n${data.deploymentUrl ? `Deployment URL: ${data.deploymentUrl}` : ""}`)
+      } else {
+        setTestOutput(`Error: ${data.error || `Failed to deploy to ${platform === "aws" ? "AWS" : "Google Cloud"}`}`)
+      }
+    } catch (error) {
+      console.error(`Error deploying to ${platform}:`, error)
+      setTestOutput(`Error: Failed to deploy to ${platform === "aws" ? "AWS" : "Google Cloud"}`)
+    } finally {
+      setIsDeploying(false)
+    }
+  }
+
   return (
     <main className="flex min-h-screen flex-col">
       <header className="border-b bg-background p-4">
@@ -127,14 +168,43 @@ export default function Home() {
                 Generating...
               </Button>
             ) : (
-              downloadUrl && (
-                <Button asChild>
-                  <a href={downloadUrl} download="ai-workflow-backend.zip">
-                    <Download className="mr-2 h-4 w-4" />
-                    Download Backend
-                  </a>
-                </Button>
-              )
+              <>
+                {downloadUrl && (
+                  <Button asChild>
+                    <a href={downloadUrl} download="ai-workflow-backend.zip">
+                      <Download className="mr-2 h-4 w-4" />
+                      Download Backend
+                    </a>
+                  </Button>
+                )}
+                {workflow && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" disabled={isDeploying}>
+                        {isDeploying ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Deploying...
+                          </>
+                        ) : (
+                          <>
+                            <Cloud className="mr-2 h-4 w-4" />
+                            Deploy
+                          </>
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleDeploy("aws")}>
+                        Deploy to AWS
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleDeploy("gcp")}>
+                        Deploy to Google Cloud
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -271,4 +341,3 @@ export default function Home() {
     </main>
   )
 }
-
